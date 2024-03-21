@@ -3,10 +3,13 @@
 
 # Models Comparison
 * Supervised
+  * Naive Bayes
+  * Logistic Regression
   * Trees Series:
     * Decision Tree
     * Random Forest
     * Gradient Boost Tree
+  * SVM (different kernels comparisonS)
   * Evaluation Metrics: 
     * Accuracy
     * Recall
