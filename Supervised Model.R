@@ -172,13 +172,3 @@ XG_Boost <-function(data,fold){
   
   output <- data.frame(set=set,training=train,validation=validation,test=test)[(fold+1),]
 }
-
-
-
-# Important Features
-importance_matrix <- xgb.importance(
-  feature_names = colnames(xgboost_train), 
-  model = xgb_model
-)
-importance_matrix
-xgb.plot.importance(importance_matrix)
