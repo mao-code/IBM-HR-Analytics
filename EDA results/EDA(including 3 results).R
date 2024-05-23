@@ -71,7 +71,7 @@ ggplot(summary_df, aes(x = Department, y = AverageIncome, fill = Attrition, labe
   geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.8) +
   geom_text(position = position_dodge(width = 0.9), vjust = -1.2, size = 3) +
   scale_fill_manual(values = c("Yes" = "red", "No" = "green")) +
-  labs(title = "Average Monthly Income by JobRole and Attrition Status", x = "Department", y = "Average Monthly Income") +
+  labs(title = "Average Monthly Income by Department and Attrition Status", x = "Department", y = "Average Monthly Income") +
   theme(axis.text.x = element_text(angle = 43, hjust = 1, size = 9)) + # Adjust text size and angle
   theme(plot.title = element_text(hjust = 0.5)) +
   ylim(0, max(summary_df$AverageIncome) * 1.2) + # Increase y-axis limit for better label placement
