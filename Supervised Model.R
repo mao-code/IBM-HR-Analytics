@@ -2,6 +2,9 @@ rm(list = ls())
 library(readr)
 library(tidyverse)
 library(dplyr)
+library(randomForest)
+library(caret)
+library(pROC)
 ################################################################################
 data <- read.csv("WA_Fn-UseC_-HR-Employee-Attrition.csv")
 str(data)
@@ -9,166 +12,117 @@ set.seed(123)
 random_index <- sample(nrow(data))
 data <- data[random_index, ]
 
-
-decision_tree <-function(data,fold){
-
-  library(rpart)
-  
-  k <- cut(seq(1,nrow(data)), breaks = fold, labels = FALSE, include.lowest = TRUE)
-  train_result <-c()
-  test_result <-c()
-  valid_result <-c()
-  
-  for(i in 1:fold){
-
-    test <- which(k == i)
-    
-    if (i == fold){
-      validation <- which(k == 1)
-    }else{
-      validation <- which(k == i + 1)
-    }
-    train <- which(k != i & k != i+1)
-    
-    model <- rpart(as.factor(Attrition) ~., data=data[train,],method="class")
-    
-    #train
-    train_pred <- predict(model, type="class")
-    train_matrix <- table(real=data[train,]$Attrition, predict=train_pred)
-    train_accuracy <- sum(diag(train_matrix))/sum(train_matrix)
-    train_result <- c(train_result,train_accuracy)
-    
-    #valid
-    valid_pred <- predict(model, newdata=data[validation,], type="class")
-    valid_matrix <- table(real=data[validation,]$Attrition, predict=valid_pred)
-    valid_accuracy <- sum(diag(valid_matrix))/sum(valid_matrix)
-    valid_result <- c(valid_result,valid_accuracy)
-    
-    #test
-    test_pred <- predict(model, newdata=data[test,], type="class")
-    test_matrix <- table(real=data[test,]$Attrition, predict=test_pred)
-    test_accuracy <- sum(diag(test_matrix))/sum(test_matrix)
-    test_result <- c(test_result,test_accuracy)
-  }
-  
-  set <- c(paste("fold",1:fold,sep=""),"average")
-  
-  #算平均
-  train <- round(c(train_result,mean(train_result)),4)
-  validation <- round(c(valid_result,mean(valid_result)),4)
-  test <- round(c(test_result,mean(test_result)),4)
-  
-  output <- data.frame(set=set,training=train,validation=validation,test=test)[(fold+1),]
-}
-
-random_forest <-function(data,fold){
-  
+random_forest <- function(data, fold) {
   library(randomForest)
+  library(caret)
+  library(pROC)
   
-  k <- cut(seq(1,nrow(data)), breaks = fold, labels = FALSE, include.lowest = TRUE)
-  train_result <-c()
-  test_result <-c()
-  valid_result <-c()
+  # Ensure the target variable is a factor with two levels
+  data$Attrition <- factor(data$Attrition, levels = c("No", "Yes"))
   
-  for(i in 1:fold){
+  # Split the data into training and testing sets
+  set.seed(42)
+  trainIndex <- createDataPartition(data$Attrition, p = .7, 
+                                    list = FALSE, 
+                                    times = 1)
+  train_data <- data[trainIndex, ]
+  test_data <- data[-trainIndex, ]
+  
+  # Initialize vectors to store results
+  validation_results <- data.frame(
+    fold = integer(fold),
+    accuracy = numeric(fold),
+    precision = numeric(fold),
+    recall = numeric(fold),
+    f1 = numeric(fold)
+  )
+  
+  # Create k folds for cross-validation
+  k <- cut(seq(1, nrow(train_data)), breaks = fold, labels = FALSE, include.lowest = TRUE)
+  
+  for (i in 1:fold) {
+    # Create training and validation sets
+    validation_indices <- which(k == i)
+    train_indices <- which(k != i)
     
-    test <- which(k == i)
+    train_fold <- train_data[train_indices, ]
+    validation_fold <- train_data[validation_indices, ]
     
-    if (i == fold){
-      validation <- which(k == 1)
-    }else{
-      validation <- which(k == i + 1)
-    }
-    train <- which(k != i & k != i+1)
+    # Train the random forest model
+    model <- randomForest(as.factor(Attrition) ~ ., data = train_fold, method = "class")
     
-    model <- rpart(as.factor(Attrition) ~., data=data[train,],method="class")
+    # Predict on the validation set
+    validation_pred <- predict(model, newdata = validation_fold, type = "class")
+    validation_matrix <- confusionMatrix(validation_pred, as.factor(validation_fold$Attrition))
     
-    #train
-    train_pred <- predict(model, type="class")
-    train_matrix <- table(real=data[train,]$Attrition, predict=train_pred)
-    train_accuracy <- sum(diag(train_matrix))/sum(train_matrix)
-    train_result <- c(train_result,train_accuracy)
+    # Store validation results
+    validation_results$fold[i] <- i
+    validation_results$accuracy[i] <- validation_matrix$overall["Accuracy"]
+    validation_results$precision[i] <- validation_matrix$byClass["Pos Pred Value"]
+    validation_results$recall[i] <- validation_matrix$byClass["Sensitivity"]
+    validation_results$f1[i] <- validation_matrix$byClass["F1"]
     
-    #valid
-    valid_pred <- predict(model, newdata=data[validation,], type="class")
-    valid_matrix <- table(real=data[validation,]$Attrition, predict=valid_pred)
-    valid_accuracy <- sum(diag(valid_matrix))/sum(valid_matrix)
-    valid_result <- c(valid_result,valid_accuracy)
-    
-    #test
-    test_pred <- predict(model, newdata=data[test,], type="class")
-    test_matrix <- table(real=data[test,]$Attrition, predict=test_pred)
-    test_accuracy <- sum(diag(test_matrix))/sum(test_matrix)
-    test_result <- c(test_result,test_accuracy)
+    # Print validation metrics for the current fold
+    # print(paste("Validation Fold", i, "Metrics:"))
+    # print(validation_matrix)
   }
   
-  set <- c(paste("fold",1:fold,sep=""),"average")
+  # Calculate mean validation metrics
+  mean_validation_metrics <- colMeans(validation_results[, -1], na.rm = TRUE)
+  print("Mean Validation Metrics:")
+  print(mean_validation_metrics)
   
-  #算平均
-  train <- round(c(train_result,mean(train_result)),4)
-  validation <- round(c(valid_result,mean(valid_result)),4)
-  test <- round(c(test_result,mean(test_result)),4)
+  # Train the final model on the entire training set
+  final_model <- randomForest(as.factor(Attrition) ~ ., data = train_data, method = "class")
   
-  output <- data.frame(set=set,training=train,validation=validation,test=test)[(fold+1),]
+  # Predict on the testing set
+  test_pred <- predict(final_model, newdata = test_data, type = "class")
+  test_pred_prob <- predict(final_model, newdata = test_data, type = "prob")[,2]
+  test_matrix <- confusionMatrix(test_pred, as.factor(test_data$Attrition))
+  
+  # Null model (majority class)
+  majority_class <- names(sort(table(train_data$Attrition), decreasing = TRUE))[1]
+  null_pred <- rep(majority_class, nrow(test_data))
+  null_pred_prob <- ifelse(null_pred == "Yes", 1, 0)
+  null_matrix <- confusionMatrix(as.factor(null_pred), as.factor(test_data$Attrition))
+  
+  # Print testing metrics
+  print("Testing Metrics (Random Forest):")
+  print(test_matrix)
+  
+  print("Testing Metrics (Null Model):")
+  print(null_matrix)
+  
+  # Compute ROC curves and AUC
+  rf_roc <- roc(test_data$Attrition, test_pred_prob, levels = rev(levels(test_data$Attrition)))
+  null_roc <- roc(test_data$Attrition, null_pred_prob, levels = rev(levels(test_data$Attrition)))
+  
+  # Print AUC
+  print(paste("AUC (Random Forest):", auc(rf_roc)))
+  print(paste("AUC (Null Model):", auc(null_roc)))
+  
+  # Compute ROC curves and AUC
+  rf_roc <- roc(test_data$Attrition, test_pred_prob, levels = rev(levels(test_data$Attrition)))
+  null_roc <- roc(test_data$Attrition, null_pred_prob, levels = rev(levels(test_data$Attrition)))
+  
+  # Print AUC
+  print(paste("AUC (Random Forest):", auc(rf_roc)))
+  print(paste("AUC (Null Model):", auc(null_roc)))
+  
+  # Plot ROC curves with adjusted parameters
+  plot(rf_roc, col = "blue", main = "ROC Curves", xlim = c(1, 0), ylim = c(0, 1), asp = 1)
+  plot(null_roc, col = "red", add = TRUE)
+  legend("bottomright", legend = c("Random Forest", "Null Model"), col = c("blue", "red"), lwd = 2, cex = 0.6)
+  
+  return(list(
+    validation_results = validation_results,
+    mean_validation_metrics = mean_validation_metrics,
+    test_matrix = test_matrix,
+    null_matrix = null_matrix,
+    rf_roc = rf_roc,
+    null_roc = null_roc
+  ))
 }
 
-XG_Boost <-function(data,fold){
-  
-  library(xgboost)
 
-  k <- cut(seq(1,nrow(data)), breaks = fold, labels = FALSE, include.lowest = TRUE)
-  train_result <-c()
-  test_result <-c()
-  valid_result <-c()
 
-  for(i in 1:fold){
-
-    test <- which(k == i)
-    
-    if (i == fold){
-      validation <- which(k == 1)
-    }else{
-      validation <- which(k == i + 1)
-    }
-    train <- which(k != i & k != i+1)
-    
-    new_train <- Matrix::sparse.model.matrix(Attrition ~ .-1, data = data[train,])
-    new_valid <- Matrix::sparse.model.matrix(Attrition ~ .-1, data = data[validation,])
-    new_test <- Matrix::sparse.model.matrix(Attrition ~ .-1, data = data[test,])
-    train_label = data[train,][,"Attrition"] == "Yes" 
-    valid_label = data[validation,][,"Attrition"] == "Yes"
-    test_label = data[test,][,"Attrition"] == "Yes"
-    dtrain <- xgb.DMatrix(data = new_train, label=train_label)
-    dvalid <- xgb.DMatrix(data = new_valid, label=valid_label)
-    dtest <- xgb.DMatrix(data = new_test, label=test_label)
-    model <- xgb.train(data = dtrain, max.depth=6, eta=0.3, nthread = 2,
-                       nround = 15, eval.metric = "error", objective = "binary:logistic")
-    
-    #train
-    train_pred <- predict(model, new_train)
-    train_matrix <- table(real=data[train,]$Attrition, predict=train_pred>0.5)
-    train_accuracy <- sum(diag(train_matrix))/sum(train_matrix)
-    train_result <- c(train_result,train_accuracy)
-    
-    #valid
-    valid_pred <- predict(model, new_valid)
-    valid_matrix <- table(real=data[validation,]$Attrition, predict=valid_pred>0.5)
-    valid_accuracy <- sum(diag(valid_matrix))/sum(valid_matrix)
-    valid_result <- c(valid_result,valid_accuracy)
-    
-    #test
-    test_pred <- predict(model, new_test)
-    test_matrix <- table(real=data[test,]$Attrition, predict=test_pred>0.5)
-    test_accuracy <- sum(diag(test_matrix))/sum(test_matrix)
-    test_result <- c(test_result,test_accuracy)
-    #pred <- prediction(valid_pred, valid$Attrition)
-  }
-  
-  set <- c(paste("fold",1:fold,sep=""),"average")
-  #算平均
-  train <- round(c(train_result,mean(train_result)),4)
-  validation <- round(c(valid_result,mean(valid_result)),4)
-  test <- round(c(test_result,mean(test_result)),4)
-  
-  output <- data.frame(set=set,training=train,validation=validation,test=test)[(fold+1),]
-}
